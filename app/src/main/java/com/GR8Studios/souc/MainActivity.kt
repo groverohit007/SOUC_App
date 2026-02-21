@@ -1,9 +1,12 @@
 package com.GR8Studios.souc
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.widget.Toast
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -16,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -26,6 +30,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -37,6 +42,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.GR8Studios.souc.auth.AuthSession
+import com.GR8Studios.souc.auth.GoogleAuthManager
+import com.GR8Studios.souc.auth.SecureTokenStorage
+import com.GR8Studios.souc.auth.YouTubeOAuthManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -93,7 +102,12 @@ fun RootNavigation() {
 // ==========================================
 @Composable
 fun HomeShell(rootNavController: NavController) {
+    val context = LocalContext.current
     val bottomNavController = rememberNavController()
+    val coroutineScope = rememberCoroutineScope()
+    val tokenStorage = remember { SecureTokenStorage(context) }
+    val youTubeOAuthManager = remember { YouTubeOAuthManager(context) }
+
     var isBarVisible by remember { mutableStateOf(false) }
     var popupVisible by rememberSaveable { mutableStateOf(true) }
     var showSkipBanner by rememberSaveable { mutableStateOf(false) }
@@ -417,8 +431,18 @@ fun PlaceholderTabScreen(title: String, bottomPadding: Dp, bannerText: String? =
 // ==========================================
 @Composable
 fun LoginScreenStub(onLoginSuccess: () -> Unit) {
+    val context = LocalContext.current
+    val googleAuthManager = remember { GoogleAuthManager(context) }
     var isLoading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        googleAuthManager.restoreSession()
+        if (AuthSession.isLoggedIn) {
+            onLoginSuccess()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -426,20 +450,37 @@ fun LoginScreenStub(onLoginSuccess: () -> Unit) {
             .background(Brush.verticalGradient(listOf(BgTop, BgBottom))),
         contentAlignment = Alignment.Center
     ) {
-        Button(
-            onClick = {
-                isLoading = true
-                coroutineScope.launch {
-                    delay(1200)
-                    isLoading = false
-                    onLoginSuccess()
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+            Text("SOUC", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = {
+                    isLoading = true
+                    error = null
+                    coroutineScope.launch {
+                        val result = googleAuthManager.signIn()
+                        isLoading = false
+                        result.onSuccess {
+                            onLoginSuccess()
+                        }.onFailure {
+                            error = it.message ?: "Google sign-in failed"
+                        }
+                    }
+                },
+                enabled = !isLoading,
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("Continue with Google")
                 }
             }
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-            } else {
-                Text("Simulate Login Success")
+
+            error?.let {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(it, color = Color(0xFFFF8A8A), fontSize = 12.sp)
             }
         }
     }
