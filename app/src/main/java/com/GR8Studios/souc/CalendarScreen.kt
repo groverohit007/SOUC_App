@@ -74,7 +74,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -83,20 +82,22 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.GR8Studios.souc.data.PostStatus
-import com.GR8Studios.souc.data.ScheduledPost
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.random.Random
+
+private const val STATUS_SCHEDULED = "SCHEDULED"
+private const val STATUS_POSTED = "POSTED"
+private const val STATUS_FAILED = "FAILED"
 
 private fun platformColor(platform: String): Color = when (platform.lowercase()) {
     "youtube" -> Color(0xFFFF3D3D)
@@ -113,9 +114,9 @@ private fun platformIcon(platform: String) = when (platform.lowercase()) {
 }
 
 private fun normalizeStatus(status: String): String = when (status.uppercase()) {
-    "POSTING" -> PostStatus.SCHEDULED
-    PostStatus.SCHEDULED, PostStatus.POSTED, PostStatus.FAILED -> status.uppercase()
-    else -> PostStatus.SCHEDULED
+    "POSTING" -> STATUS_SCHEDULED
+    STATUS_SCHEDULED, STATUS_POSTED, STATUS_FAILED -> status.uppercase()
+    else -> STATUS_SCHEDULED
 }
 
 fun groupPostsByDate(posts: List<ScheduledPost>): List<Pair<Long, List<ScheduledPost>>> {
@@ -140,10 +141,8 @@ private enum class CalendarTab { Agenda, Month }
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun CalendarScreen(bottomPadding: Dp, onCreatePost: () -> Unit) {
-    val postsViewModel: PostsViewModel = viewModel()
-    val uiPosts by postsViewModel.posts.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
-    val snackbarScope = rememberCoroutineScope()
 
     var activeTab by rememberSaveable { mutableStateOf(CalendarTab.Agenda) }
     var activeFilter by rememberSaveable { mutableStateOf("all") }
@@ -159,7 +158,7 @@ fun CalendarScreen(bottomPadding: Dp, onCreatePost: () -> Unit) {
         }
     }
 
-    val allPosts = uiPosts
+    val allPosts = ScheduledPostRepository.posts.toList()
     val filteredPosts = allPosts
         .filter {
             activeFilter == "all" || it.platforms.any { p -> p.equals(activeFilter, ignoreCase = true) }
@@ -237,12 +236,9 @@ fun CalendarScreen(bottomPadding: Dp, onCreatePost: () -> Unit) {
                                     CalendarTab.Agenda -> AgendaList(
                                         agendaGroups = agendaGroups,
                                         onEdit = { editingPostId = it.id },
-                                        onDuplicate = { postsViewModel.duplicatePost(it.id) },
-                                        onDelete = { postsViewModel.deletePost(it.id) },
-                                        onRetry = {
-                                            postsViewModel.retryPost(it.id)
-                                            snackbarScope.launch { snackbarHostState.showSnackbar("Retry queued") }
-                                        }
+                                        onDuplicate = { duplicatePost(it) },
+                                        onDelete = { deletePost(it.id) },
+                                        onRetry = { retryPost(it.id, snackbarHostState) }
                                     )
 
                                     CalendarTab.Month -> MonthTab(
@@ -256,12 +252,9 @@ fun CalendarScreen(bottomPadding: Dp, onCreatePost: () -> Unit) {
                                         },
                                         onDaySelect = { selectedMonthDay = it },
                                         onEdit = { editingPostId = it.id },
-                                        onDuplicate = { postsViewModel.duplicatePost(it.id) },
-                                        onDelete = { postsViewModel.deletePost(it.id) },
-                                        onRetry = {
-                                            postsViewModel.retryPost(it.id)
-                                            snackbarScope.launch { snackbarHostState.showSnackbar("Retry queued") }
-                                        }
+                                        onDuplicate = { duplicatePost(it) },
+                                        onDelete = { deletePost(it.id) },
+                                        onRetry = { retryPost(it.id, snackbarHostState) }
                                     )
                                 }
                             }
@@ -283,7 +276,7 @@ fun CalendarScreen(bottomPadding: Dp, onCreatePost: () -> Unit) {
                     set(Calendar.HOUR_OF_DAY, hour)
                     set(Calendar.MINUTE, minute)
                 }
-                postsViewModel.updatePost(editingPost.copy(scheduledEpochMillis = c.timeInMillis, status = PostStatus.SCHEDULED, lastError = null))
+                updatePost(editingPost.id) { it.copy(scheduledEpochMillis = c.timeInMillis, status = STATUS_SCHEDULED) }
                 editingPostId = null
             },
             onOpenTimePicker = { currentH, currentM, onPicked ->
@@ -546,8 +539,8 @@ private fun CalendarPostCard(
     val status = normalizeStatus(post.status)
     val statusColor by animateColorAsState(
         targetValue = when (status) {
-            PostStatus.POSTED -> Color(0xFF34D399)
-            PostStatus.FAILED -> Color(0xFFFB7185)
+            STATUS_POSTED -> Color(0xFF34D399)
+            STATUS_FAILED -> Color(0xFFFB7185)
             else -> Color(0xFF60A5FA)
         },
         animationSpec = tween(260),
@@ -602,7 +595,7 @@ private fun CalendarPostCard(
                     DropdownMenuItem(text = { Text("Edit") }, onClick = { menuExpanded = false; onEdit() }, leadingIcon = { Icon(Icons.Default.Edit, null) })
                     DropdownMenuItem(text = { Text("Duplicate") }, onClick = { menuExpanded = false; onDuplicate() }, leadingIcon = { Icon(Icons.Default.CheckCircle, null) })
                     DropdownMenuItem(text = { Text("Delete") }, onClick = { menuExpanded = false; onDelete() }, leadingIcon = { Icon(Icons.Default.ErrorOutline, null) })
-                    if (status == PostStatus.FAILED) {
+                    if (status == STATUS_FAILED) {
                         DropdownMenuItem(text = { Text("Retry") }, onClick = { menuExpanded = false; onRetry() }, leadingIcon = { Icon(Icons.Default.PlayArrow, null) })
                     }
                 }
@@ -681,3 +674,34 @@ private fun EditPostBottomSheet(
     }
 }
 
+private fun updatePost(id: String, transform: (ScheduledPost) -> ScheduledPost) {
+    val index = ScheduledPostRepository.posts.indexOfFirst { it.id == id }
+    if (index >= 0) {
+        ScheduledPostRepository.posts[index] = transform(ScheduledPostRepository.posts[index])
+    }
+}
+
+private fun deletePost(id: String) {
+    ScheduledPostRepository.posts.removeAll { it.id == id }
+}
+
+private fun duplicatePost(post: ScheduledPost) {
+    val c = Calendar.getInstance().apply {
+        timeInMillis = post.scheduledEpochMillis
+        add(Calendar.DAY_OF_YEAR, 1)
+    }
+    ScheduledPostRepository.add(
+        post.copy(
+            id = "post_${Random.nextInt(1000, 9999)}",
+            scheduledEpochMillis = c.timeInMillis,
+            status = STATUS_SCHEDULED
+        )
+    )
+}
+
+private fun retryPost(id: String, snackbarHostState: SnackbarHostState) {
+    updatePost(id) { it.copy(status = STATUS_SCHEDULED) }
+    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+        snackbarHostState.showSnackbar("Retry queued")
+    }
+}

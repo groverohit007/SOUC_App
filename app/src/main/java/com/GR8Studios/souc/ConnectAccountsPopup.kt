@@ -81,6 +81,7 @@ fun ConnectAccountsPopup(
     continueEnabled: Boolean,
     onConnectPlatform: (SocialPlatform) -> Unit,
     onDisconnectPlatform: (SocialPlatform) -> Unit,
+    onCompleteConnect: (SocialPlatform) -> Unit,
     onContinue: () -> Unit,
     onSkip: () -> Unit,
     onDismissRequest: () -> Unit
@@ -197,6 +198,12 @@ fun ConnectAccountsPopup(
                                     )
                                 }
 
+                                LaunchedEffect(loading) {
+                                    if (loading) {
+                                        delay(900)
+                                        onCompleteConnect(platform)
+                                    }
+                                }
                             }
                         }
 
