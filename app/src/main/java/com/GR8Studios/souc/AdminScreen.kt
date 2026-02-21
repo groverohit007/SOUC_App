@@ -125,13 +125,13 @@ fun AdminScreen(
                                         color = Color(0xFF818CF8)
                                     )
                                     AdminStatBubble(
-                                        icon = Icons.Default.Article,
+                                        icon = Icons.AutoMirrored.Filled.Article,
                                         value = totalPosts.toString(),
                                         label = "Total Posts",
                                         color = Color(0xFF60A5FA)
                                     )
                                     AdminStatBubble(
-                                        icon = Icons.Default.TrendingUp,
+                                        icon = Icons.AutoMirrored.Filled.TrendingUp,
                                         value = if (totalPosts > 0) "${(postedCount * 100 / totalPosts)}%" else "0%",
                                         label = "Success",
                                         color = Color(0xFF34D399)
