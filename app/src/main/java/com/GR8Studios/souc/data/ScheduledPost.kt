@@ -2,11 +2,8 @@ package com.GR8Studios.souc.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import androidx.room.TypeConverters
-import com.GR8Studios.souc.data.local.PostConverters
 
 @Entity(tableName = "scheduled_posts")
-@TypeConverters(PostConverters::class)
 data class ScheduledPost(
     @PrimaryKey val id: String,
     val mediaUri: String,
