@@ -130,7 +130,20 @@ fun HomeShell(rootNavController: NavController) {
                 composable("home") { PlaceholderTabScreen("Home", paddingValues.calculateBottomPadding()) }
                 composable("create") { PlaceholderTabScreen("Create", paddingValues.calculateBottomPadding()) }
                 composable("calendar") { PlaceholderTabScreen("Calendar", paddingValues.calculateBottomPadding()) }
-                composable("accounts") { PlaceholderTabScreen("Accounts", paddingValues.calculateBottomPadding()) }
+                composable("accounts") {
+                    ConnectAccountsScreen(
+                        bottomPadding = paddingValues.calculateBottomPadding(),
+                        onContinue = {
+                            bottomNavController.navigate("create") {
+                                popUpTo(bottomNavController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    )
+                }
                 composable("settings") { PlaceholderTabScreen("Settings", paddingValues.calculateBottomPadding()) }
             }
         }
