@@ -1,36 +1,63 @@
 package com.GR8Studios.souc
 
-import android.annotation.SuppressLint
-import android.app.Activity
-import android.widget.Toast
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,43 +72,35 @@ import androidx.navigation.compose.rememberNavController
 import com.GR8Studios.souc.auth.AuthSession
 import com.GR8Studios.souc.auth.GoogleAuthManager
 import com.GR8Studios.souc.data.AppDefaults
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 
-// --- CONSTANTS & COLORS ---
 val BgTop = Color(0xFF0B0F1A)
 val BgBottom = Color(0xFF121A2A)
 val GradientBrand = listOf(Color(0xFFE91E63), Color(0xFF9C27B0), Color(0xFF2196F3))
-
-val NavBackground = Color(0xEE121A2A)
-val NavUnselected = Color(0xFF9AA4B2)
-val NavSelected = Color(0xFFFFFFFF)
-
-const val BAR_ENTER_DURATION = 320
-const val INDICATOR_SPRING_STIFFNESS = 300f
-const val INDICATOR_SPRING_DAMPING = 0.7f
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
+            MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme()) {
                 RootNavigation()
             }
         }
     }
 }
 
-// ==========================================
-// 1. ROOT NAVIGATION
-// ==========================================
 @Composable
 fun RootNavigation() {
     val rootNavController = rememberNavController()
+    val isLoggedIn = FirebaseAuth.getInstance().currentUser != null
 
-    NavHost(navController = rootNavController, startDestination = "login") {
+    NavHost(
+        navController = rootNavController,
+        startDestination = if (isLoggedIn) "shell" else "login"
+    ) {
         composable("login") {
-            LoginScreenStub(
+            LoginScreen(
                 onLoginSuccess = {
                     rootNavController.navigate("shell") {
                         popUpTo("login") { inclusive = true }
@@ -89,290 +108,196 @@ fun RootNavigation() {
                 }
             )
         }
-        composable("shell") {
-            HomeShell(rootNavController)
+        composable("shell") { HomeShell(rootNavController) }
+        composable("paywall") {
+            SubscriptionScreen(
+                onDismiss = { rootNavController.popBackStack() },
+                onPurchaseSuccess = {
+                    rootNavController.popBackStack("create", false)
+                }
+            )
         }
     }
 }
 
-// ==========================================
-// 2. HOME SHELL & NESTED NAV
-// ==========================================
+private data class UserState(
+    val uid: String = "",
+    val isAdmin: Boolean = false,
+    val tier: String = "FREE",
+    val postsUsed: Int = 0,
+    val freePostLimit: Int = AppDefaults.FREE_POST_LIMIT
+)
+
 @Composable
 fun HomeShell(rootNavController: NavController) {
-    val context = LocalContext.current
     val bottomNavController = rememberNavController()
     val postsViewModel: PostsViewModel = viewModel()
     val posts by postsViewModel.posts.collectAsState()
 
-    val isAdmin = AuthSession.currentUser?.email == AppDefaults.MASTER_EMAIL
+    val firebaseUser = FirebaseAuth.getInstance().currentUser
+    var userState by remember { mutableStateOf(UserState()) }
 
-    var isBarVisible by remember { mutableStateOf(false) }
-    var popupVisible by rememberSaveable { mutableStateOf(true) }
-    var showSkipBanner by rememberSaveable { mutableStateOf(false) }
-
-    var youtubeConnected by rememberSaveable { mutableStateOf(false) }
-    var instagramConnected by rememberSaveable { mutableStateOf(false) }
-    var facebookConnected by rememberSaveable { mutableStateOf(false) }
-
-    var youtubeLoading by rememberSaveable { mutableStateOf(false) }
-    var instagramLoading by rememberSaveable { mutableStateOf(false) }
-    var facebookLoading by rememberSaveable { mutableStateOf(false) }
-
-    val youtubeLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        youtubeLoading = false
-        if (result.resultCode == Activity.RESULT_OK) {
-            val authResult = youTubeOAuthManager.handleResult(result.data)
-            authResult
-                .onSuccess { account ->
-                    val authCode = account.serverAuthCode
-                    if (!authCode.isNullOrBlank()) {
-                        youTubeOAuthManager.persistAuthCodeAsScaffold(authCode)
-                        youtubeConnected = true
-                    } else {
-                        youtubeConnected = false
-                        Toast.makeText(context, "YouTube auth code not returned", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                .onFailure { throwable ->
-                    youtubeConnected = false
-                    Toast.makeText(context, "YouTube connect failed: ${throwable.message}", Toast.LENGTH_SHORT).show()
-                }
+    DisposableEffect(firebaseUser?.uid) {
+        if (firebaseUser == null) {
+            onDispose { }
         } else {
-            Toast.makeText(context, "YouTube connection canceled", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    var youtubeConnected by rememberSaveable { mutableStateOf(false) }
-    var instagramConnected by rememberSaveable { mutableStateOf(false) }
-    var facebookConnected by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        delay(100)
-        isBarVisible = true
-        popupVisible = true
-        youtubeConnected = tokenStorage.isYouTubeConnectedAndValid()
-        if (!youtubeConnected) showSkipBanner = true
-    }
-
-    // Build nav items dynamically based on admin status
-    val navItems = remember(isAdmin) {
-        buildList {
-            add(BottomNavItem("home", "Home", Icons.Default.Home))
-            add(BottomNavItem("create", "Create", Icons.Default.AddCircle))
-            add(BottomNavItem("calendar", "Calendar", Icons.Default.DateRange))
-            add(BottomNavItem("accounts", "Accounts", Icons.Default.People))
-            if (isAdmin) {
-                add(BottomNavItem("admin", "Admin", Icons.Default.Shield))
+            val db = FirebaseFirestore.getInstance()
+            val userListener = db.collection("users").document(firebaseUser.uid)
+                .addSnapshotListener { snapshot, _ ->
+                    userState = userState.copy(
+                        uid = firebaseUser.uid,
+                        tier = snapshot?.getString("tier") ?: "FREE",
+                        isAdmin = snapshot?.getBoolean("isAdmin") ?: false,
+                        postsUsed = (snapshot?.getLong("postsUsed") ?: 0L).toInt()
+                    )
+                }
+            val configListener = db.collection("app_settings").document("config")
+                .addSnapshotListener { snapshot, _ ->
+                    userState = userState.copy(
+                        freePostLimit = (snapshot?.getLong("free_post_limit")
+                            ?: AppDefaults.FREE_POST_LIMIT.toLong()).toInt()
+                    )
+                }
+            onDispose {
+                userListener.remove()
+                configListener.remove()
             }
-            add(BottomNavItem("settings", "Settings", Icons.Default.Settings))
         }
     }
+
+    var navVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { navVisible = true }
+
+    val canSchedule = userState.isAdmin || userState.tier.equals("PREMIUM", true) || userState.postsUsed < userState.freePostLimit
 
     Scaffold(
         containerColor = Color.Transparent,
         bottomBar = {
             AnimatedVisibility(
-                visible = isBarVisible,
-                enter = fadeIn(tween(BAR_ENTER_DURATION, easing = EaseOut)) +
-                        slideInVertically(
-                            initialOffsetY = { it },
-                            animationSpec = tween(BAR_ENTER_DURATION, easing = EaseOutBack)
-                        )
-                    }
-                    composable("create") {
-                        CreateScreen(
-                            bottomPadding = paddingValues.calculateBottomPadding(),
-                            youtubeConnected = youtubeConnected,
-                            instagramConnected = instagramConnected,
-                            facebookConnected = facebookConnected,
-                            onOpenConnectPopup = { popupVisible = true },
-                            onNavigateCalendar = {
-                                bottomNavController.navigate("calendar") {
-                                    popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        )
-                    }
-                    composable("calendar") {
-                        CalendarScreen(
-                            bottomPadding = paddingValues.calculateBottomPadding(),
-                            onCreatePost = {
-                                bottomNavController.navigate("create") {
-                                    popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        )
-                    }
-                    composable("accounts") { PlaceholderTabScreen("Accounts", paddingValues.calculateBottomPadding()) }
-                    composable("settings") { PlaceholderTabScreen("Settings", paddingValues.calculateBottomPadding()) }
-                }
+                visible = navVisible,
+                enter = fadeIn(tween(330)) + slideInVertically(initialOffsetY = { it / 2 }, animationSpec = tween(330))
+            ) {
+                Floating3DNavBar(navController = bottomNavController, isAdmin = userState.isAdmin)
             }
         }
     ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize()) {
-            NavHost(
-                navController = bottomNavController,
-                startDestination = "home"
-            ) {
-                composable("home") {
-                    HomeScreen(
-                        bottomPadding = paddingValues.calculateBottomPadding(),
-                        posts = posts,
-                        onNavigateCreate = {
-                            bottomNavController.navigate("create") {
-                                popUpTo(bottomNavController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        onNavigateCalendar = {
-                            bottomNavController.navigate("calendar") {
-                                popUpTo(bottomNavController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
+        NavHost(navController = bottomNavController, startDestination = "home") {
+            composable("home") {
+                HomeScreen(
+                    bottomPadding = paddingValues.calculateBottomPadding(),
+                    posts = posts,
+                    onNavigateCreate = { bottomNavController.navigate("create") { launchSingleTop = true } },
+                    onNavigateCalendar = { bottomNavController.navigate("calendar") { launchSingleTop = true } }
+                )
+            }
+            composable("create") {
+                CreateScreen(
+                    bottomPadding = paddingValues.calculateBottomPadding(),
+                    youtubeConnected = false,
+                    instagramConnected = false,
+                    facebookConnected = false,
+                    onOpenConnectPopup = { bottomNavController.navigate("accounts") { launchSingleTop = true } },
+                    onNavigateCalendar = {
+                        if (canSchedule) bottomNavController.navigate("calendar") { launchSingleTop = true }
+                        else rootNavController.navigate("paywall")
+                    }
+                )
+            }
+            composable("calendar") {
+                CalendarScreen(
+                    bottomPadding = paddingValues.calculateBottomPadding(),
+                    onCreatePost = { bottomNavController.navigate("create") { launchSingleTop = true } }
+                )
+            }
+            composable("accounts") {
+                ConnectAccountsScreen(
+                    bottomPadding = paddingValues.calculateBottomPadding(),
+                    onContinue = { bottomNavController.navigate("create") { launchSingleTop = true } }
+                )
+            }
+            composable("admin") {
+                AdminDashboardScreen(bottomPadding = paddingValues.calculateBottomPadding(), posts = posts)
+            }
+            composable("settings") {
+                SettingsScreen(
+                    bottomPadding = paddingValues.calculateBottomPadding(),
+                    onLogout = {
+                        FirebaseAuth.getInstance().signOut()
+                        AuthSession.setUser(null)
+                        rootNavController.navigate("login") {
+                            popUpTo("shell") { inclusive = true }
                         }
-                    )
-                }
-                composable("create") {
-                    CreateScreen(
-                        bottomPadding = paddingValues.calculateBottomPadding(),
-                        youtubeConnected = youtubeConnected,
-                        instagramConnected = instagramConnected,
-                        facebookConnected = facebookConnected,
-                        onOpenConnectPopup = {
-                            bottomNavController.navigate("accounts") {
-                                popUpTo(bottomNavController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        onNavigateCalendar = {
-                            bottomNavController.navigate("calendar") {
-                                popUpTo(bottomNavController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    )
-                }
-                composable("calendar") {
-                    CalendarScreen(
-                        bottomPadding = paddingValues.calculateBottomPadding(),
-                        onCreatePost = {
-                            bottomNavController.navigate("create") {
-                                popUpTo(bottomNavController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    )
-                }
-                composable("accounts") {
-                    ConnectAccountsScreen(
-                        bottomPadding = paddingValues.calculateBottomPadding(),
-                        onContinue = {
-                            bottomNavController.navigate("create") {
-                                popUpTo(bottomNavController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    )
-                }
-                // Always register admin route to prevent crashes on nav state restore
-                composable("admin") {
-                    AdminScreen(
-                        bottomPadding = paddingValues.calculateBottomPadding(),
-                        posts = posts,
-                        userCount = 1
-                    )
-                }
-                composable("settings") {
-                    SettingsScreen(
-                        bottomPadding = paddingValues.calculateBottomPadding(),
-                        onLogout = {
-                            rootNavController.navigate("login") {
-                                popUpTo("shell") { inclusive = true }
-                            }
-                        }
-                    )
-                }
+                    }
+                )
             }
         }
     }
 }
 
 // ==========================================
-// 3. FLOATING BOTTOM NAVIGATION BAR
+// 3. 3D FLOATING NAVIGATION BAR
 // ==========================================
 data class BottomNavItem(val route: String, val title: String, val icon: ImageVector)
 
-@SuppressLint("UnusedBoxWithConstraintsScope")
+val StandardNavItems = listOf(
+    BottomNavItem("home", "Home", Icons.Default.Home),
+    BottomNavItem("create", "Create", Icons.Default.Add),
+    BottomNavItem("calendar", "Calendar", Icons.Default.DateRange),
+    BottomNavItem("accounts", "Accounts", Icons.Default.Person),
+    BottomNavItem("settings", "Settings", Icons.Default.Settings)
+)
+
+val AdminNavItem = BottomNavItem("admin", "Admin", Icons.Default.AdminPanelSettings)
+
 @Composable
-fun FloatingBottomNavBar(navController: NavHostController, items: List<BottomNavItem>) {
+fun Floating3DNavBar(navController: NavHostController, isAdmin: Boolean) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: "home"
-
-    val selectedIndex = items.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
+    val activeNavItems = remember(isAdmin) { if (isAdmin) StandardNavItems + AdminNavItem else StandardNavItems }
+    val selectedIndex = activeNavItems.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = 24.dp, vertical = 16.dp)
-            .shadow(
-                elevation = 16.dp,
-                shape = RoundedCornerShape(24.dp),
-                ambientColor = Color.Black,
-                spotColor = Color.Black
-            )
-            .clip(RoundedCornerShape(24.dp))
-            .background(NavBackground)
+            .graphicsLayer {
+                shadowElevation = 24.dp.toPx()
+                shape = RoundedCornerShape(32.dp)
+                clip = true
+                ambientShadowColor = Color(0xFFE91E63)
+                spotShadowColor = Color(0xFF9C27B0)
+            }
+            .background(Color(0xD9121A2A))
+            .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.10f), Color.Transparent)))
+            .padding(vertical = 8.dp)
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val tabWidth = maxWidth / items.size
-
+            val tabWidth = maxWidth / activeNavItems.size
             val indicatorOffset by animateDpAsState(
                 targetValue = tabWidth * selectedIndex,
-                animationSpec = spring(
-                    dampingRatio = INDICATOR_SPRING_DAMPING,
-                    stiffness = INDICATOR_SPRING_STIFFNESS
-                ),
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 250f),
                 label = "indicator_slide"
             )
 
             Box(
-                modifier = Modifier
-                    .offset(x = indicatorOffset)
-                    .width(tabWidth)
-                    .padding(top = 6.dp),
-                contentAlignment = Alignment.TopCenter
+                modifier = Modifier.offset(x = indicatorOffset).width(tabWidth),
+                contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
-                        .size(width = 20.dp, height = 4.dp)
-                        .clip(CircleShape)
-                        .background(Brush.horizontalGradient(GradientBrand))
+                        .size(48.dp)
+                        .graphicsLayer {
+                            shadowElevation = 20f
+                            shape = CircleShape
+                            ambientShadowColor = Color(0xFF9C27B0)
+                            spotShadowColor = Color(0xFF2196F3)
+                        }
+                        .background(
+                            brush = Brush.radialGradient(
+                                colors = listOf(Color(0xFFE91E63).copy(alpha = 0.4f), Color.Transparent)
+                            )
+                        )
                 )
             }
 
@@ -381,19 +306,16 @@ fun FloatingBottomNavBar(navController: NavHostController, items: List<BottomNav
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                items.forEach { item ->
+                activeNavItems.forEach { item ->
                     val isSelected = currentRoute == item.route
-
-                    BottomNavItemUI(
+                    NavItem3D(
                         item = item,
                         isSelected = isSelected,
                         modifier = Modifier.weight(1f),
                         onClick = {
                             if (!isSelected) {
                                 navController.navigate(item.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                                     launchSingleTop = true
                                     restoreState = true
                                 }
@@ -407,7 +329,7 @@ fun FloatingBottomNavBar(navController: NavHostController, items: List<BottomNav
 }
 
 @Composable
-fun BottomNavItemUI(
+fun NavItem3D(
     item: BottomNavItem,
     isSelected: Boolean,
     modifier: Modifier = Modifier,
@@ -415,160 +337,73 @@ fun BottomNavItemUI(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val haptic = LocalHapticFeedback.current
 
-    val pressScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.90f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "press_scale"
+    val liftY by animateFloatAsState(
+        targetValue = if (isSelected) -12f else if (isPressed) 4f else 0f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 300f),
+        label = "lift_y"
     )
-
-    val selectScale by animateFloatAsState(
-        targetValue = if (isSelected) 1f else 0.92f,
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
-        label = "select_scale"
+    val scale by animateFloatAsState(
+        targetValue = if (isSelected) 1.1f else if (isPressed) 0.9f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f),
+        label = "scale"
     )
-
-    var glowAlpha by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(isSelected) {
-        if (isSelected) {
-            glowAlpha = 0.8f
-            animate(
-                initialValue = 0.8f,
-                targetValue = 0.25f,
-                animationSpec = tween(400, easing = FastOutSlowInEasing)
-            ) { value, _ -> glowAlpha = value }
-        } else {
-            glowAlpha = 0f
-        }
-    }
 
     Column(
         modifier = modifier
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            )
-            .padding(vertical = 12.dp)
-            .scale(pressScale * selectScale),
+            .clickable(interactionSource = interactionSource, indication = null) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
+            .graphicsLayer {
+                translationY = liftY
+                scaleX = scale
+                scaleY = scale
+            },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            if (glowAlpha > 0f) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .background(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    GradientBrand[1].copy(alpha = glowAlpha),
-                                    Color.Transparent
-                                ),
-                                radius = 60f
-                            )
-                        )
-                )
-            }
-
-            Icon(
-                imageVector = item.icon,
-                contentDescription = item.title,
-                tint = if (isSelected) NavSelected else NavUnselected,
-                modifier = Modifier.size(24.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = item.title,
-            color = if (isSelected) NavSelected else NavUnselected,
-            fontSize = 11.sp,
-            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+        Icon(
+            imageVector = item.icon,
+            contentDescription = item.title,
+            tint = if (isSelected) Color.White else Color(0xFF9AA4B2),
+            modifier = Modifier.size(26.dp)
         )
+        Spacer(modifier = Modifier.height(4.dp))
+        AnimatedVisibility(visible = isSelected) {
+            Text(text = item.title, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
-// ==========================================
-// 4. LOGIN SCREEN
-// ==========================================
 @Composable
-fun LoginScreenStub(onLoginSuccess: () -> Unit) {
-    val context = LocalContext.current
-    val googleAuthManager = remember { GoogleAuthManager(context) }
-    var isLoading by remember { mutableStateOf(false) }
+fun LoginScreen(onLoginSuccess: () -> Unit) {
+    val authManager = remember { GoogleAuthManager(androidx.compose.ui.platform.LocalContext.current) }
+    var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
-        googleAuthManager.restoreSession()
-        if (AuthSession.isLoggedIn) {
-            onLoginSuccess()
-        }
+        authManager.restoreSession()
+        if (FirebaseAuth.getInstance().currentUser != null) onLoginSuccess()
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(BgTop, BgBottom))),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(24.dp)
-        ) {
-            Text("SOUC", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                "Schedule Once, Upload to All",
-                color = Color(0xFF8B97AB),
-                fontSize = 14.sp
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Button(
-                onClick = {
-                    isLoading = true
-                    error = null
-                    coroutineScope.launch {
-                        val result = googleAuthManager.signIn()
-                        isLoading = false
-                        result.onSuccess {
-                            onLoginSuccess()
-                        }.onFailure {
-                            error = it.message ?: "Google sign-in failed"
-                        }
-                    }
+    LoginScreenContent(
+        loading = loading,
+        error = error,
+        onGoogleTap = {
+            loading = true
+            error = null
+            authManager.signInAndSyncProfile(
+                onSuccess = {
+                    loading = false
+                    onLoginSuccess()
                 },
-                enabled = !isLoading,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White
-                )
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        color = Color.Black,
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Text(
-                        "Continue with Google",
-                        color = Color.Black,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                onError = {
+                    loading = false
+                    error = it
                 }
-            }
-
-            error?.let {
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(it, color = Color(0xFFFF8A8A), fontSize = 12.sp)
-            }
+            )
         }
-    }
+    )
 }

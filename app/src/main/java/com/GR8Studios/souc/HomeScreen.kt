@@ -32,6 +32,8 @@ import com.GR8Studios.souc.data.AppDefaults
 import com.GR8Studios.souc.data.ScheduledPost
 import com.GR8Studios.souc.data.PostStatus
 import kotlinx.coroutines.delay
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -55,6 +57,30 @@ fun HomeScreen(
     }
 
     val isAdmin = user?.email == AppDefaults.MASTER_EMAIL
+
+    var tier by remember { mutableStateOf("FREE") }
+    var postsUsed by remember { mutableIntStateOf(0) }
+    var monthlyLimit by remember { mutableIntStateOf(AppDefaults.FREE_POST_LIMIT) }
+
+    DisposableEffect(Unit) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid == null) {
+            onDispose { }
+        } else {
+            val db = FirebaseFirestore.getInstance()
+            val userListener = db.collection("users").document(uid).addSnapshotListener { snap, _ ->
+                tier = snap?.getString("tier") ?: "FREE"
+                postsUsed = (snap?.getLong("postsUsed") ?: 0L).toInt()
+            }
+            val configListener = db.collection("app_settings").document("config").addSnapshotListener { snap, _ ->
+                monthlyLimit = (snap?.getLong("free_post_limit") ?: AppDefaults.FREE_POST_LIMIT.toLong()).toInt()
+            }
+            onDispose {
+                userListener.remove()
+                configListener.remove()
+            }
+        }
+    }
 
     val totalPosts = posts.size
     val scheduledCount = posts.count { it.status == PostStatus.SCHEDULED }
@@ -115,6 +141,21 @@ fun HomeScreen(
                                 fontSize = 28.sp,
                                 fontWeight = FontWeight.Bold
                             )
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (tier.equals("PREMIUM", true) || isAdmin) Color(0xFF9C27B0).copy(alpha = 0.24f) else Color.Transparent,
+                                tonalElevation = if (tier.equals("PREMIUM", true) || isAdmin) 2.dp else 0.dp,
+                                border = if (tier.equals("PREMIUM", true) || isAdmin) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF6C7691))
+                            ) {
+                                Text(
+                                    text = if (tier.equals("PREMIUM", true) || isAdmin) "Pro" else "Free ($postsUsed/$monthlyLimit Used)",
+                                    color = if (tier.equals("PREMIUM", true) || isAdmin) Color(0xFFE0C4FF) else Color(0xFFB0BDD4),
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
                             if (isAdmin) {
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Surface(
