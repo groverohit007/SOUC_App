@@ -1,9 +1,12 @@
 package com.GR8Studios.souc
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.widget.Toast
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -16,7 +19,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,6 +30,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -36,6 +42,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.GR8Studios.souc.auth.AuthSession
+import com.GR8Studios.souc.auth.GoogleAuthManager
+import com.GR8Studios.souc.auth.SecureTokenStorage
+import com.GR8Studios.souc.auth.YouTubeOAuthManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -92,47 +102,181 @@ fun RootNavigation() {
 // ==========================================
 @Composable
 fun HomeShell(rootNavController: NavController) {
+    val context = LocalContext.current
     val bottomNavController = rememberNavController()
-    var isBarVisible by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    val tokenStorage = remember { SecureTokenStorage(context) }
+    val youTubeOAuthManager = remember { YouTubeOAuthManager(context) }
 
-    // Trigger bottom bar enter animation
-    LaunchedEffect(Unit) {
-        delay(100) // Slight delay to let the screen transition finish
-        isBarVisible = true
+    var isBarVisible by remember { mutableStateOf(false) }
+    var popupVisible by rememberSaveable { mutableStateOf(true) }
+    var showSkipBanner by rememberSaveable { mutableStateOf(false) }
+
+    var youtubeConnected by rememberSaveable { mutableStateOf(false) }
+    var instagramConnected by rememberSaveable { mutableStateOf(false) }
+    var facebookConnected by rememberSaveable { mutableStateOf(false) }
+
+    var youtubeLoading by rememberSaveable { mutableStateOf(false) }
+    var instagramLoading by rememberSaveable { mutableStateOf(false) }
+    var facebookLoading by rememberSaveable { mutableStateOf(false) }
+
+    val youtubeLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        youtubeLoading = false
+        if (result.resultCode == Activity.RESULT_OK) {
+            val authResult = youTubeOAuthManager.handleResult(result.data)
+            authResult.onSuccess { account ->
+                val authCode = account.serverAuthCode
+                if (!authCode.isNullOrBlank()) {
+                    youTubeOAuthManager.persistAuthCodeAsScaffold(authCode)
+                    youtubeConnected = true
+                } else {
+                    youtubeConnected = false
+                    Toast.makeText(context, "YouTube auth code not returned", Toast.LENGTH_SHORT).show()
+                }
+            }.onFailure {
+                youtubeConnected = false
+                Toast.makeText(context, "YouTube connect failed: ${it.message}", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(context, "YouTube connection canceled", Toast.LENGTH_SHORT).show()
+        }
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        bottomBar = {
-            AnimatedVisibility(
-                visible = isBarVisible,
-                enter = fadeIn(tween(BAR_ENTER_DURATION, easing = EaseOut)) +
-                        slideInVertically(
-                            initialOffsetY = { it },
-                            animationSpec = tween(BAR_ENTER_DURATION, easing = EaseOutBack)
+    LaunchedEffect(Unit) {
+        delay(100)
+        isBarVisible = true
+        popupVisible = true
+        youtubeConnected = tokenStorage.isYouTubeConnectedAndValid()
+        if (!youtubeConnected) {
+            showSkipBanner = true
+        }
+    }
+
+    val hasConnectedPlatform = youtubeConnected || instagramConnected || facebookConnected
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            bottomBar = {
+                AnimatedVisibility(
+                    visible = isBarVisible,
+                    enter = fadeIn(tween(BAR_ENTER_DURATION, easing = EaseOut)) +
+                            slideInVertically(
+                                initialOffsetY = { it },
+                                animationSpec = tween(BAR_ENTER_DURATION, easing = EaseOutBack)
+                            )
+                ) {
+                    FloatingBottomNavBar(navController = bottomNavController)
+                }
+            }
+        ) { paddingValues ->
+            Box(modifier = Modifier.fillMaxSize()) {
+                NavHost(
+                    navController = bottomNavController,
+                    startDestination = "home"
+                ) {
+                    composable("home") {
+                        PlaceholderTabScreen(
+                            title = "Home",
+                            bottomPadding = paddingValues.calculateBottomPadding(),
+                            bannerText = if (showSkipBanner) "Connect your socials to start scheduling posts faster." else null
                         )
-            ) {
-                FloatingBottomNavBar(navController = bottomNavController)
+                    }
+                    composable("create") {
+                        CreateScreen(
+                            bottomPadding = paddingValues.calculateBottomPadding(),
+                            youtubeConnected = youtubeConnected,
+                            instagramConnected = instagramConnected,
+                            facebookConnected = facebookConnected,
+                            onOpenConnectPopup = { popupVisible = true },
+                            onNavigateCalendar = {
+                                bottomNavController.navigate("calendar") {
+                                    popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        )
+                    }
+                    composable("calendar") {
+                        CalendarScreen(
+                            bottomPadding = paddingValues.calculateBottomPadding(),
+                            onCreatePost = {
+                                bottomNavController.navigate("create") {
+                                    popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        )
+                    }
+                    composable("accounts") { PlaceholderTabScreen("Accounts", paddingValues.calculateBottomPadding()) }
+                    composable("settings") { PlaceholderTabScreen("Settings", paddingValues.calculateBottomPadding()) }
+                }
             }
         }
-    ) { paddingValues ->
-        // The nested NavHost for the 5 tabs
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-            // Do not apply bottom padding here to let the background gradient flow behind the floating bar.
-            // We will handle safe areas inside the tab screens.
-        ) {
-            NavHost(
-                navController = bottomNavController,
-                startDestination = "home"
-            ) {
-                composable("home") { PlaceholderTabScreen("Home", paddingValues.calculateBottomPadding()) }
-                composable("create") { PlaceholderTabScreen("Create", paddingValues.calculateBottomPadding()) }
-                composable("calendar") { PlaceholderTabScreen("Calendar", paddingValues.calculateBottomPadding()) }
-                composable("accounts") { PlaceholderTabScreen("Accounts", paddingValues.calculateBottomPadding()) }
-                composable("settings") { PlaceholderTabScreen("Settings", paddingValues.calculateBottomPadding()) }
-            }
+
+        if (popupVisible) {
+            ConnectAccountsPopup(
+                youtubeConnected = youtubeConnected,
+                instagramConnected = instagramConnected,
+                facebookConnected = facebookConnected,
+                youtubeLoading = youtubeLoading,
+                instagramLoading = instagramLoading,
+                facebookLoading = facebookLoading,
+                onConnectPlatform = { platform ->
+                    when (platform) {
+                        SocialPlatform.YouTube -> {
+                            if (!youtubeLoading) {
+                                youtubeLoading = true
+                                youtubeLauncher.launch(youTubeOAuthManager.getConnectIntent())
+                            }
+                        }
+
+                        SocialPlatform.Instagram -> if (!instagramLoading) {
+                            instagramLoading = true
+                            coroutineScope.launch {
+                                delay(900)
+                                instagramLoading = false
+                                instagramConnected = true
+                            }
+                        }
+
+                        SocialPlatform.Facebook -> if (!facebookLoading) {
+                            facebookLoading = true
+                            coroutineScope.launch {
+                                delay(900)
+                                facebookLoading = false
+                                facebookConnected = true
+                            }
+                        }
+                    }
+                },
+                onDisconnectPlatform = { platform ->
+                    when (platform) {
+                        SocialPlatform.YouTube -> {
+                            youtubeConnected = false
+                            youTubeOAuthManager.clearConnection()
+                        }
+                        SocialPlatform.Instagram -> instagramConnected = false
+                        SocialPlatform.Facebook -> facebookConnected = false
+                    }
+                },
+                onSkip = {
+                    popupVisible = false
+                    showSkipBanner = true
+                },
+                onContinue = {
+                    if (hasConnectedPlatform) {
+                        popupVisible = false
+                        showSkipBanner = false
+                    }
+                },
+                onDismissRequest = { /* Block swipe-out to force explicit action */ },
+                continueEnabled = hasConnectedPlatform
+            )
         }
     }
 }
@@ -323,7 +467,7 @@ fun BottomNavItemUI(
 // 4. PLACEHOLDER TAB SCREENS
 // ==========================================
 @Composable
-fun PlaceholderTabScreen(title: String, bottomPadding: Dp) {
+fun PlaceholderTabScreen(title: String, bottomPadding: Dp, bannerText: String? = null) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -332,9 +476,23 @@ fun PlaceholderTabScreen(title: String, bottomPadding: Dp) {
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            // Keep content above the floating nav bar
             modifier = Modifier.padding(bottom = bottomPadding + 80.dp)
         ) {
+            bannerText?.let {
+                Surface(
+                    color = Color(0xFF1E2A43),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.padding(bottom = 20.dp)
+                ) {
+                    Text(
+                        text = it,
+                        color = Color(0xFFD6E4FF),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
             Text(
                 text = title,
                 color = Color.White,
@@ -356,8 +514,18 @@ fun PlaceholderTabScreen(title: String, bottomPadding: Dp) {
 // ==========================================
 @Composable
 fun LoginScreenStub(onLoginSuccess: () -> Unit) {
+    val context = LocalContext.current
+    val googleAuthManager = remember { GoogleAuthManager(context) }
     var isLoading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        googleAuthManager.restoreSession()
+        if (AuthSession.isLoggedIn) {
+            onLoginSuccess()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -365,20 +533,37 @@ fun LoginScreenStub(onLoginSuccess: () -> Unit) {
             .background(Brush.verticalGradient(listOf(BgTop, BgBottom))),
         contentAlignment = Alignment.Center
     ) {
-        Button(
-            onClick = {
-                isLoading = true
-                coroutineScope.launch {
-                    delay(1200)
-                    isLoading = false
-                    onLoginSuccess()
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+            Text("SOUC", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = {
+                    isLoading = true
+                    error = null
+                    coroutineScope.launch {
+                        val result = googleAuthManager.signIn()
+                        isLoading = false
+                        result.onSuccess {
+                            onLoginSuccess()
+                        }.onFailure {
+                            error = it.message ?: "Google sign-in failed"
+                        }
+                    }
+                },
+                enabled = !isLoading,
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("Continue with Google")
                 }
             }
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-            } else {
-                Text("Simulate Login Success")
+
+            error?.let {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(it, color = Color(0xFFFF8A8A), fontSize = 12.sp)
             }
         }
     }
