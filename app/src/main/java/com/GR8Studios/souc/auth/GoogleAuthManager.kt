@@ -3,10 +3,13 @@ package com.GR8Studios.souc.auth
 import android.content.Context
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.GR8Studios.souc.R
 import com.GR8Studios.souc.data.AppDefaults
 import com.google.android.gms.auth.api.signin.GoogleAuthProvider
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import com.google.firebase.auth.AuthCredential
@@ -29,17 +32,16 @@ class GoogleAuthManager(private val context: Context) {
     fun signInAndSyncProfile(onSuccess: () -> Unit, onError: (String) -> Unit) {
         CoroutineScope(Dispatchers.Main).launch {
             runCatching {
-                val googleIdOption = GetGoogleIdOption.Builder()
-                    .setFilterByAuthorizedAccounts(false)
-                    .setServerClientId(context.getString(R.string.default_web_client_id))
-                    .setAutoSelectEnabled(false)
-                    .build()
+                val credential = runCatching {
+                    requestWithGoogleIdOption()
+                }.recoverCatching { throwable ->
+                    if (throwable is NoCredentialException) {
+                        requestWithGoogleButtonFlow()
+                    } else {
+                        throw throwable
+                    }
+                }.getOrThrow()
 
-                val request = GetCredentialRequest.Builder()
-                    .addCredentialOption(googleIdOption)
-                    .build()
-
-                val credential = credentialManager.getCredential(context, request).credential
                 val tokenCredential = try {
                     GoogleIdTokenCredential.createFrom(credential.data)
                 } catch (e: GoogleIdTokenParsingException) {
@@ -67,26 +69,35 @@ class GoogleAuthManager(private val context: Context) {
                 tokenStorage.saveGoogleProfile(firebaseUser.uid, firebaseUser.email, firebaseUser.displayName)
             }.onSuccess {
                 onSuccess()
-            }.onFailure {
-                onError(it.message ?: "Google sign-in failed")
+            }.onFailure { error ->
+                onError(error.toUserMessage())
             }
         }
-
-    private suspend fun getDocument(
-        ref: com.google.firebase.firestore.DocumentReference
-    ): com.google.firebase.firestore.DocumentSnapshot = suspendCancellableCoroutine { cont ->
-        ref.get().addOnSuccessListener { cont.resume(it) }
-            .addOnFailureListener { cont.resumeWithException(it) }
     }
 
-    private suspend fun setDocument(
-        ref: com.google.firebase.firestore.DocumentReference,
-        data: Map<String, Any>
-    ) = suspendCancellableCoroutine<Unit> { cont ->
-        ref.set(data, SetOptions.merge())
-            .addOnSuccessListener { cont.resume(Unit) }
-            .addOnFailureListener { cont.resumeWithException(it) }
-    }
+    private suspend fun requestWithGoogleIdOption() = credentialManager
+        .getCredential(
+            context,
+            GetCredentialRequest.Builder()
+                .addCredentialOption(
+                    GetGoogleIdOption.Builder()
+                        .setFilterByAuthorizedAccounts(false)
+                        .setServerClientId(context.getString(R.string.default_web_client_id))
+                        .setAutoSelectEnabled(false)
+                        .build()
+                )
+                .build()
+        ).credential
+
+    private suspend fun requestWithGoogleButtonFlow() = credentialManager
+        .getCredential(
+            context,
+            GetCredentialRequest.Builder()
+                .addCredentialOption(
+                    GetSignInWithGoogleOption.Builder(context.getString(R.string.default_web_client_id)).build()
+                )
+                .build()
+        ).credential
 
     private suspend fun signInWithFirebase(credential: AuthCredential): AuthResult =
         suspendCancellableCoroutine { cont ->
@@ -101,5 +112,13 @@ class GoogleAuthManager(private val context: Context) {
             return
         }
         AuthSession.setUser(tokenStorage.readGoogleProfile())
+    }
+
+    private fun Throwable.toUserMessage(): String {
+        return when (this) {
+            is NoCredentialException -> "No Google account found on this device. Add an account and try again."
+            is GetCredentialException -> "Google sign-in is unavailable right now. Check Play Services and try again."
+            else -> message ?: "Google sign-in failed"
+        }
     }
 }
