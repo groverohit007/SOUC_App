@@ -1,9 +1,12 @@
 package com.GR8Studios.souc
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.widget.Toast
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -16,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -96,6 +100,7 @@ fun RootNavigation() {
 // ==========================================
 @Composable
 fun HomeShell(rootNavController: NavController) {
+    val context = LocalContext.current
     val bottomNavController = rememberNavController()
     val postsViewModel: PostsViewModel = viewModel()
     val posts by postsViewModel.posts.collectAsState()
@@ -103,6 +108,42 @@ fun HomeShell(rootNavController: NavController) {
     val isAdmin = AuthSession.currentUser?.email == AppDefaults.MASTER_EMAIL
 
     var isBarVisible by remember { mutableStateOf(false) }
+    var popupVisible by rememberSaveable { mutableStateOf(true) }
+    var showSkipBanner by rememberSaveable { mutableStateOf(false) }
+
+    var youtubeConnected by rememberSaveable { mutableStateOf(false) }
+    var instagramConnected by rememberSaveable { mutableStateOf(false) }
+    var facebookConnected by rememberSaveable { mutableStateOf(false) }
+
+    var youtubeLoading by rememberSaveable { mutableStateOf(false) }
+    var instagramLoading by rememberSaveable { mutableStateOf(false) }
+    var facebookLoading by rememberSaveable { mutableStateOf(false) }
+
+    val youtubeLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        youtubeLoading = false
+        if (result.resultCode == Activity.RESULT_OK) {
+            val authResult = youTubeOAuthManager.handleResult(result.data)
+            authResult
+                .onSuccess { account ->
+                    val authCode = account.serverAuthCode
+                    if (!authCode.isNullOrBlank()) {
+                        youTubeOAuthManager.persistAuthCodeAsScaffold(authCode)
+                        youtubeConnected = true
+                    } else {
+                        youtubeConnected = false
+                        Toast.makeText(context, "YouTube auth code not returned", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .onFailure { throwable ->
+                    youtubeConnected = false
+                    Toast.makeText(context, "YouTube connect failed: ${throwable.message}", Toast.LENGTH_SHORT).show()
+                }
+        } else {
+            Toast.makeText(context, "YouTube connection canceled", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     var youtubeConnected by rememberSaveable { mutableStateOf(false) }
     var instagramConnected by rememberSaveable { mutableStateOf(false) }
@@ -111,6 +152,9 @@ fun HomeShell(rootNavController: NavController) {
     LaunchedEffect(Unit) {
         delay(100)
         isBarVisible = true
+        popupVisible = true
+        youtubeConnected = tokenStorage.isYouTubeConnectedAndValid()
+        if (!youtubeConnected) showSkipBanner = true
     }
 
     // Build nav items dynamically based on admin status
