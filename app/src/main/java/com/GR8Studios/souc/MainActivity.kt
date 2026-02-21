@@ -128,54 +128,35 @@ fun HomeShell(rootNavController: NavController) {
 
     val hasConnectedPlatform = youtubeConnected || instagramConnected || facebookConnected
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Scaffold(
-            containerColor = Color.Transparent,
-            bottomBar = {
-                AnimatedVisibility(
-                    visible = isBarVisible,
-                    enter = fadeIn(tween(BAR_ENTER_DURATION, easing = EaseOut)) +
-                            slideInVertically(
-                                initialOffsetY = { it },
-                                animationSpec = tween(BAR_ENTER_DURATION, easing = EaseOutBack)
-                            )
-                ) {
-                    FloatingBottomNavBar(navController = bottomNavController)
-                }
-            }
-        ) { paddingValues ->
-            Box(modifier = Modifier.fillMaxSize()) {
-                NavHost(
-                    navController = bottomNavController,
-                    startDestination = "home"
-                ) {
-                    composable("home") {
-                        PlaceholderTabScreen(
-                            title = "Home",
-                            bottomPadding = paddingValues.calculateBottomPadding(),
-                            bannerText = if (showSkipBanner) "Connect your socials to start scheduling posts faster." else null
+    Scaffold(
+        containerColor = Color.Transparent,
+        bottomBar = {
+            AnimatedVisibility(
+                visible = isBarVisible,
+                enter = fadeIn(tween(BAR_ENTER_DURATION, easing = EaseOut)) +
+                        slideInVertically(
+                            initialOffsetY = { it },
+                            animationSpec = tween(BAR_ENTER_DURATION, easing = EaseOutBack)
                         )
-                    }
-                    composable("create") { PlaceholderTabScreen("Create", paddingValues.calculateBottomPadding()) }
-                    composable("calendar") { PlaceholderTabScreen("Calendar", paddingValues.calculateBottomPadding()) }
-                    composable("accounts") { PlaceholderTabScreen("Accounts", paddingValues.calculateBottomPadding()) }
-                    composable("settings") { PlaceholderTabScreen("Settings", paddingValues.calculateBottomPadding()) }
-                }
+            ) {
+                FloatingBottomNavBar(navController = bottomNavController)
             }
         }
     ) { paddingValues ->
-        // The nested NavHost for the 5 tabs
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-            // Do not apply bottom padding here to let the background gradient flow behind the floating bar.
-            // We will handle safe areas inside the tab screens.
+            modifier = Modifier.fillMaxSize()
         ) {
             NavHost(
                 navController = bottomNavController,
                 startDestination = "home"
             ) {
-                composable("home") { PlaceholderTabScreen("Home", paddingValues.calculateBottomPadding()) }
+                composable("home") {
+                    PlaceholderTabScreen(
+                        title = "Home",
+                        bottomPadding = paddingValues.calculateBottomPadding(),
+                        bannerText = if (showSkipBanner) "Connect your socials to start scheduling posts faster." else null
+                    )
+                }
                 composable("create") { PlaceholderTabScreen("Create", paddingValues.calculateBottomPadding()) }
                 composable("calendar") { PlaceholderTabScreen("Calendar", paddingValues.calculateBottomPadding()) }
                 composable("accounts") {
