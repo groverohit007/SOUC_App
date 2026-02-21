@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -94,25 +95,58 @@ fun RootNavigation() {
 fun HomeShell(rootNavController: NavController) {
     val bottomNavController = rememberNavController()
     var isBarVisible by remember { mutableStateOf(false) }
+    var popupVisible by rememberSaveable { mutableStateOf(true) }
+    var showSkipBanner by rememberSaveable { mutableStateOf(false) }
 
-    // Trigger bottom bar enter animation
+    var youtubeConnected by rememberSaveable { mutableStateOf(false) }
+    var instagramConnected by rememberSaveable { mutableStateOf(false) }
+    var facebookConnected by rememberSaveable { mutableStateOf(false) }
+
+    var youtubeLoading by rememberSaveable { mutableStateOf(false) }
+    var instagramLoading by rememberSaveable { mutableStateOf(false) }
+    var facebookLoading by rememberSaveable { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
-        delay(100) // Slight delay to let the screen transition finish
+        delay(100)
         isBarVisible = true
+        popupVisible = true
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        bottomBar = {
-            AnimatedVisibility(
-                visible = isBarVisible,
-                enter = fadeIn(tween(BAR_ENTER_DURATION, easing = EaseOut)) +
-                        slideInVertically(
-                            initialOffsetY = { it },
-                            animationSpec = tween(BAR_ENTER_DURATION, easing = EaseOutBack)
+    val hasConnectedPlatform = youtubeConnected || instagramConnected || facebookConnected
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            bottomBar = {
+                AnimatedVisibility(
+                    visible = isBarVisible,
+                    enter = fadeIn(tween(BAR_ENTER_DURATION, easing = EaseOut)) +
+                            slideInVertically(
+                                initialOffsetY = { it },
+                                animationSpec = tween(BAR_ENTER_DURATION, easing = EaseOutBack)
+                            )
+                ) {
+                    FloatingBottomNavBar(navController = bottomNavController)
+                }
+            }
+        ) { paddingValues ->
+            Box(modifier = Modifier.fillMaxSize()) {
+                NavHost(
+                    navController = bottomNavController,
+                    startDestination = "home"
+                ) {
+                    composable("home") {
+                        PlaceholderTabScreen(
+                            title = "Home",
+                            bottomPadding = paddingValues.calculateBottomPadding(),
+                            bannerText = if (showSkipBanner) "Connect your socials to start scheduling posts faster." else null
                         )
-            ) {
-                FloatingBottomNavBar(navController = bottomNavController)
+                    }
+                    composable("create") { PlaceholderTabScreen("Create", paddingValues.calculateBottomPadding()) }
+                    composable("calendar") { PlaceholderTabScreen("Calendar", paddingValues.calculateBottomPadding()) }
+                    composable("accounts") { PlaceholderTabScreen("Accounts", paddingValues.calculateBottomPadding()) }
+                    composable("settings") { PlaceholderTabScreen("Settings", paddingValues.calculateBottomPadding()) }
+                }
             }
         }
     ) { paddingValues ->
@@ -336,7 +370,7 @@ fun BottomNavItemUI(
 // 4. PLACEHOLDER TAB SCREENS
 // ==========================================
 @Composable
-fun PlaceholderTabScreen(title: String, bottomPadding: Dp) {
+fun PlaceholderTabScreen(title: String, bottomPadding: Dp, bannerText: String? = null) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -345,9 +379,23 @@ fun PlaceholderTabScreen(title: String, bottomPadding: Dp) {
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            // Keep content above the floating nav bar
             modifier = Modifier.padding(bottom = bottomPadding + 80.dp)
         ) {
+            bannerText?.let {
+                Surface(
+                    color = Color(0xFF1E2A43),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.padding(bottom = 20.dp)
+                ) {
+                    Text(
+                        text = it,
+                        color = Color(0xFFD6E4FF),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
             Text(
                 text = title,
                 color = Color.White,
