@@ -138,8 +138,38 @@ fun HomeShell(rootNavController: NavController) {
                             initialOffsetY = { it },
                             animationSpec = tween(BAR_ENTER_DURATION, easing = EaseOutBack)
                         )
-            ) {
-                FloatingBottomNavBar(navController = bottomNavController)
+                    }
+                    composable("create") {
+                        CreateScreen(
+                            bottomPadding = paddingValues.calculateBottomPadding(),
+                            youtubeConnected = youtubeConnected,
+                            instagramConnected = instagramConnected,
+                            facebookConnected = facebookConnected,
+                            onOpenConnectPopup = { popupVisible = true },
+                            onNavigateCalendar = {
+                                bottomNavController.navigate("calendar") {
+                                    popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        )
+                    }
+                    composable("calendar") {
+                        CalendarScreen(
+                            bottomPadding = paddingValues.calculateBottomPadding(),
+                            onCreatePost = {
+                                bottomNavController.navigate("create") {
+                                    popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        )
+                    }
+                    composable("accounts") { PlaceholderTabScreen("Accounts", paddingValues.calculateBottomPadding()) }
+                    composable("settings") { PlaceholderTabScreen("Settings", paddingValues.calculateBottomPadding()) }
+                }
             }
         }
     ) { paddingValues ->
