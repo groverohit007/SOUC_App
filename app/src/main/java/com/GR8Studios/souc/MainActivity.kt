@@ -1,12 +1,11 @@
 package com.GR8Studios.souc
 
 import android.annotation.SuppressLint
-import android.app.Activity
-import android.widget.Toast
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -19,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -35,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -45,7 +44,7 @@ import androidx.navigation.compose.rememberNavController
 import com.GR8Studios.souc.auth.AuthSession
 import com.GR8Studios.souc.auth.GoogleAuthManager
 import com.GR8Studios.souc.auth.SecureTokenStorage
-import com.GR8Studios.souc.auth.YouTubeOAuthManager
+import com.GR8Studios.souc.data.AppDefaults
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -54,11 +53,10 @@ val BgTop = Color(0xFF0B0F1A)
 val BgBottom = Color(0xFF121A2A)
 val GradientBrand = listOf(Color(0xFFE91E63), Color(0xFF9C27B0), Color(0xFF2196F3))
 
-val NavBackground = Color(0xEE121A2A) // Slight transparency for floating effect
+val NavBackground = Color(0xEE121A2A)
 val NavUnselected = Color(0xFF9AA4B2)
 val NavSelected = Color(0xFFFFFFFF)
 
-// Animation Durations
 const val BAR_ENTER_DURATION = 320
 const val INDICATOR_SPRING_STIFFNESS = 300f
 const val INDICATOR_SPRING_DAMPING = 0.7f
@@ -104,29 +102,35 @@ fun RootNavigation() {
 fun HomeShell(rootNavController: NavController) {
     val context = LocalContext.current
     val bottomNavController = rememberNavController()
-    val coroutineScope = rememberCoroutineScope()
-    val tokenStorage = remember { SecureTokenStorage(context) }
-    val youTubeOAuthManager = remember { YouTubeOAuthManager(context) }
+    val postsViewModel: PostsViewModel = viewModel()
+    val posts by postsViewModel.posts.collectAsState()
+
+    val isAdmin = AuthSession.currentUser?.email == AppDefaults.MASTER_EMAIL
 
     var isBarVisible by remember { mutableStateOf(false) }
-    var popupVisible by rememberSaveable { mutableStateOf(true) }
-    var showSkipBanner by rememberSaveable { mutableStateOf(false) }
 
     var youtubeConnected by rememberSaveable { mutableStateOf(false) }
     var instagramConnected by rememberSaveable { mutableStateOf(false) }
     var facebookConnected by rememberSaveable { mutableStateOf(false) }
 
-    var youtubeLoading by rememberSaveable { mutableStateOf(false) }
-    var instagramLoading by rememberSaveable { mutableStateOf(false) }
-    var facebookLoading by rememberSaveable { mutableStateOf(false) }
-
     LaunchedEffect(Unit) {
         delay(100)
         isBarVisible = true
-        popupVisible = true
     }
 
-    val hasConnectedPlatform = youtubeConnected || instagramConnected || facebookConnected
+    // Build nav items dynamically based on admin status
+    val navItems = remember(isAdmin) {
+        buildList {
+            add(BottomNavItem("home", "Home", Icons.Default.Home))
+            add(BottomNavItem("create", "Create", Icons.Default.AddCircle))
+            add(BottomNavItem("calendar", "Calendar", Icons.Default.DateRange))
+            add(BottomNavItem("accounts", "Accounts", Icons.Default.People))
+            if (isAdmin) {
+                add(BottomNavItem("admin", "Admin", Icons.Default.Shield))
+            }
+            add(BottomNavItem("settings", "Settings", Icons.Default.Settings))
+        }
+    }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -139,41 +143,100 @@ fun HomeShell(rootNavController: NavController) {
                             animationSpec = tween(BAR_ENTER_DURATION, easing = EaseOutBack)
                         )
             ) {
-                FloatingBottomNavBar(navController = bottomNavController)
+                FloatingBottomNavBar(navController = bottomNavController, items = navItems)
             }
         }
     ) { paddingValues ->
-        Box(
-            modifier = Modifier.fillMaxSize()
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
             NavHost(
                 navController = bottomNavController,
                 startDestination = "home"
             ) {
                 composable("home") {
-                    PlaceholderTabScreen(
-                        title = "Home",
+                    HomeScreen(
                         bottomPadding = paddingValues.calculateBottomPadding(),
-                        bannerText = if (showSkipBanner) "Connect your socials to start scheduling posts faster." else null
-                    )
-                }
-                composable("create") { PlaceholderTabScreen("Create", paddingValues.calculateBottomPadding()) }
-                composable("calendar") { PlaceholderTabScreen("Calendar", paddingValues.calculateBottomPadding()) }
-                composable("accounts") {
-                    ConnectAccountsScreen(
-                        bottomPadding = paddingValues.calculateBottomPadding(),
-                        onContinue = {
+                        posts = posts,
+                        onNavigateCreate = {
                             bottomNavController.navigate("create") {
-                                popUpTo(bottomNavController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
+                                popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        onNavigateCalendar = {
+                            bottomNavController.navigate("calendar") {
+                                popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
                                 launchSingleTop = true
                                 restoreState = true
                             }
                         }
                     )
                 }
-                composable("settings") { PlaceholderTabScreen("Settings", paddingValues.calculateBottomPadding()) }
+                composable("create") {
+                    CreateScreen(
+                        bottomPadding = paddingValues.calculateBottomPadding(),
+                        youtubeConnected = youtubeConnected,
+                        instagramConnected = instagramConnected,
+                        facebookConnected = facebookConnected,
+                        onOpenConnectPopup = {
+                            bottomNavController.navigate("accounts") {
+                                popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        onNavigateCalendar = {
+                            bottomNavController.navigate("calendar") {
+                                popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    )
+                }
+                composable("calendar") {
+                    CalendarScreen(
+                        bottomPadding = paddingValues.calculateBottomPadding(),
+                        onCreatePost = {
+                            bottomNavController.navigate("create") {
+                                popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    )
+                }
+                composable("accounts") {
+                    ConnectAccountsScreen(
+                        bottomPadding = paddingValues.calculateBottomPadding(),
+                        onContinue = {
+                            bottomNavController.navigate("create") {
+                                popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    )
+                }
+                if (isAdmin) {
+                    composable("admin") {
+                        AdminScreen(
+                            bottomPadding = paddingValues.calculateBottomPadding(),
+                            posts = posts,
+                            userCount = 1
+                        )
+                    }
+                }
+                composable("settings") {
+                    SettingsScreen(
+                        bottomPadding = paddingValues.calculateBottomPadding(),
+                        onLogout = {
+                            rootNavController.navigate("login") {
+                                popUpTo("shell") { inclusive = true }
+                            }
+                        }
+                    )
+                }
             }
         }
     }
@@ -184,36 +247,26 @@ fun HomeShell(rootNavController: NavController) {
 // ==========================================
 data class BottomNavItem(val route: String, val title: String, val icon: ImageVector)
 
-val BottomNavItems = listOf(
-    BottomNavItem("home", "Home", Icons.Default.Home),
-    BottomNavItem("create", "Create", Icons.Default.AddCircle),
-    BottomNavItem("calendar", "Calendar", Icons.Default.DateRange),
-    BottomNavItem("accounts", "Accounts", Icons.Default.People),
-    BottomNavItem("settings", "Settings", Icons.Default.Settings)
-)
-
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
-fun FloatingBottomNavBar(navController: NavHostController) {
+fun FloatingBottomNavBar(navController: NavHostController, items: List<BottomNavItem>) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: "home"
 
-    // Find the currently selected index for the sliding indicator
-    val selectedIndex = BottomNavItems.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
+    val selectedIndex = items.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding() // Safe area handling
+            .navigationBarsPadding()
             .padding(horizontal = 24.dp, vertical = 16.dp)
             .shadow(elevation = 16.dp, shape = RoundedCornerShape(24.dp), ambientColor = Color.Black, spotColor = Color.Black)
             .clip(RoundedCornerShape(24.dp))
             .background(NavBackground)
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val tabWidth = maxWidth / BottomNavItems.size
+            val tabWidth = maxWidth / items.size
 
-            // The Sliding Gradient Indicator
             val indicatorOffset by animateDpAsState(
                 targetValue = tabWidth * selectedIndex,
                 animationSpec = spring(
@@ -223,7 +276,6 @@ fun FloatingBottomNavBar(navController: NavHostController) {
                 label = "indicator_slide"
             )
 
-            // Draw the indicator dot/pill at the top of the selected tab
             Box(
                 modifier = Modifier
                     .offset(x = indicatorOffset)
@@ -239,13 +291,12 @@ fun FloatingBottomNavBar(navController: NavHostController) {
                 )
             }
 
-            // The Navigation Items
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                BottomNavItems.forEach { item ->
+                items.forEach { item ->
                     val isSelected = currentRoute == item.route
 
                     BottomNavItemUI(
@@ -255,7 +306,6 @@ fun FloatingBottomNavBar(navController: NavHostController) {
                         onClick = {
                             if (!isSelected) {
                                 navController.navigate(item.route) {
-                                    // Preserve state per tab!
                                     popUpTo(navController.graph.findStartDestination().id) {
                                         saveState = true
                                     }
@@ -281,35 +331,29 @@ fun BottomNavItemUI(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
-    // 1. Press Microinteraction (0.97f)
     val pressScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.90f else 1f, // Exaggerated slightly for satisfying feel
+        targetValue = if (isPressed) 0.90f else 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
         label = "press_scale"
     )
 
-    // 2. Selection Pop (0.92f -> 1.0f)
     val selectScale by animateFloatAsState(
         targetValue = if (isSelected) 1f else 0.92f,
-        animationSpec = spring(
-            dampingRatio = 0.6f, // Bouncy spring
-            stiffness = 400f
-        ),
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
         label = "select_scale"
     )
 
-    // 3. Single Pulse Glow Effect
     var glowAlpha by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(isSelected) {
         if (isSelected) {
-            glowAlpha = 0.8f // Initial bright pulse
+            glowAlpha = 0.8f
             animate(
                 initialValue = 0.8f,
-                targetValue = 0.25f, // Settles into a soft resting glow
+                targetValue = 0.25f,
                 animationSpec = tween(400, easing = FastOutSlowInEasing)
             ) { value, _ -> glowAlpha = value }
         } else {
-            glowAlpha = 0f // Turns off when unselected
+            glowAlpha = 0f
         }
     }
 
@@ -317,16 +361,15 @@ fun BottomNavItemUI(
         modifier = modifier
             .clickable(
                 interactionSource = interactionSource,
-                indication = null, // Remove default ripple for custom scaling
+                indication = null,
                 onClick = onClick
             )
             .padding(vertical = 12.dp)
-            .scale(pressScale * selectScale), // Combine both scales
+            .scale(pressScale * selectScale),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Box(contentAlignment = Alignment.Center) {
-            // The Gradient Glow Behind the Icon
             if (glowAlpha > 0f) {
                 Box(
                     modifier = Modifier
@@ -340,7 +383,6 @@ fun BottomNavItemUI(
                 )
             }
 
-            // The Icon
             Icon(
                 imageVector = item.icon,
                 contentDescription = item.title,
@@ -351,7 +393,6 @@ fun BottomNavItemUI(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // The Label
         Text(
             text = item.title,
             color = if (isSelected) NavSelected else NavUnselected,
@@ -362,53 +403,7 @@ fun BottomNavItemUI(
 }
 
 // ==========================================
-// 4. PLACEHOLDER TAB SCREENS
-// ==========================================
-@Composable
-fun PlaceholderTabScreen(title: String, bottomPadding: Dp, bannerText: String? = null) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(BgTop, BgBottom))),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(bottom = bottomPadding + 80.dp)
-        ) {
-            bannerText?.let {
-                Surface(
-                    color = Color(0xFF1E2A43),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.padding(bottom = 20.dp)
-                ) {
-                    Text(
-                        text = it,
-                        color = Color(0xFFD6E4FF),
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        fontSize = 12.sp
-                    )
-                }
-            }
-
-            Text(
-                text = title,
-                color = Color.White,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Dashboard Content Here",
-                color = Color.Gray,
-                fontSize = 16.sp
-            )
-        }
-    }
-}
-
-// ==========================================
-// 5. LOGIN STUB (Kept for runnable completeness)
+// 4. LOGIN SCREEN
 // ==========================================
 @Composable
 fun LoginScreenStub(onLoginSuccess: () -> Unit) {
@@ -433,7 +428,13 @@ fun LoginScreenStub(onLoginSuccess: () -> Unit) {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
             Text("SOUC", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Schedule Once, Upload to All",
+                color = Color(0xFF8B97AB),
+                fontSize = 14.sp
+            )
+            Spacer(modifier = Modifier.height(24.dp))
 
             Button(
                 onClick = {
@@ -450,12 +451,18 @@ fun LoginScreenStub(onLoginSuccess: () -> Unit) {
                     }
                 },
                 enabled = !isLoading,
-                shape = RoundedCornerShape(14.dp)
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White
+                )
             ) {
                 if (isLoading) {
-                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 } else {
-                    Text("Continue with Google")
+                    Text("Continue with Google", color = Color.Black, fontWeight = FontWeight.SemiBold)
                 }
             }
 
