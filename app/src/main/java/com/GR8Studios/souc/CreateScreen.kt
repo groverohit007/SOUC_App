@@ -86,13 +86,28 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.GR8Studios.souc.data.PostStatus
-import com.GR8Studios.souc.data.ScheduledPost
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import kotlin.random.Random
+
+data class ScheduledPost(
+    val id: String,
+    val mediaName: String,
+    val mediaType: String,
+    val platforms: List<String>,
+    val captionMap: Map<String, String>,
+    val scheduledEpochMillis: Long,
+    val status: String
+)
+
+object ScheduledPostRepository {
+    val posts = mutableStateListOf<ScheduledPost>()
+
+    fun add(post: ScheduledPost) {
+        posts.add(0, post)
+    }
+}
 
 private data class CreatePlatform(
     val key: String,
@@ -118,7 +133,6 @@ fun CreateScreen(
     onNavigateCalendar: () -> Unit
 ) {
     val context = LocalContext.current
-    val postsViewModel: PostsViewModel = viewModel()
 
     var mediaSelected by rememberSaveable { mutableStateOf(false) }
     var mediaName by rememberSaveable { mutableStateOf("reel_2026.mp4") }
@@ -253,17 +267,14 @@ fun CreateScreen(
                                 }
                                 val post = ScheduledPost(
                                     id = "post_${Random.nextInt(1000, 9999)}",
-                                    mediaUri = "content://mock/$mediaName",
                                     mediaName = mediaName,
                                     mediaType = if (mediaName.endsWith("mp4")) "video" else "image",
                                     platforms = selectedPlatforms,
                                     captionMap = captions,
                                     scheduledEpochMillis = chosenEpoch,
-                                    status = PostStatus.SCHEDULED,
-                                    lastError = null,
-                                    createdAt = System.currentTimeMillis()
+                                    status = if (postNow) "posting" else "scheduled"
                                 )
-                                postsViewModel.createPost(post)
+                                ScheduledPostRepository.add(post)
                                 successPost = post
                             },
                             enabled = canSubmit,
