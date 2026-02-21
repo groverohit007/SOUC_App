@@ -27,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.GR8Studios.souc.auth.AuthSession
 import com.GR8Studios.souc.data.AppDefaults
-import com.GR8Studios.souc.data.SubscriptionTier
 import kotlinx.coroutines.delay
 import java.util.TimeZone
 
@@ -262,13 +261,13 @@ fun SettingsScreen(
                                     value = selectedTimezone,
                                     onClick = { showTimezoneDialog = true }
                                 )
-                                Divider(color = Color(0xFF2A3753), modifier = Modifier.padding(vertical = 4.dp))
+                                HorizontalDivider(color = Color(0xFF2A3753), modifier = Modifier.padding(vertical = 4.dp))
                                 SettingsRow(
                                     icon = Icons.Default.Notifications,
                                     label = "Notifications",
                                     value = "Enabled"
                                 )
-                                Divider(color = Color(0xFF2A3753), modifier = Modifier.padding(vertical = 4.dp))
+                                HorizontalDivider(color = Color(0xFF2A3753), modifier = Modifier.padding(vertical = 4.dp))
                                 SettingsRow(
                                     icon = Icons.Default.Language,
                                     label = "Language",
@@ -302,7 +301,7 @@ fun SettingsScreen(
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     SettingsRow(icon = Icons.Default.Info, label = "App Version", value = "1.0.0")
-                                    Divider(color = Color(0xFF2A3753), modifier = Modifier.padding(vertical = 4.dp))
+                                    HorizontalDivider(color = Color(0xFF2A3753), modifier = Modifier.padding(vertical = 4.dp))
                                     SettingsRow(icon = Icons.Default.Code, label = "Built by", value = "GR8 Studios")
                                 }
                             }

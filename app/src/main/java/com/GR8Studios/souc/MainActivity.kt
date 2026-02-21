@@ -1,11 +1,9 @@
 package com.GR8Studios.souc
 
 import android.annotation.SuppressLint
-import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -30,7 +28,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -43,7 +40,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.GR8Studios.souc.auth.AuthSession
 import com.GR8Studios.souc.auth.GoogleAuthManager
-import com.GR8Studios.souc.auth.SecureTokenStorage
 import com.GR8Studios.souc.data.AppDefaults
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -100,7 +96,6 @@ fun RootNavigation() {
 // ==========================================
 @Composable
 fun HomeShell(rootNavController: NavController) {
-    val context = LocalContext.current
     val bottomNavController = rememberNavController()
     val postsViewModel: PostsViewModel = viewModel()
     val posts by postsViewModel.posts.collectAsState()
@@ -158,14 +153,18 @@ fun HomeShell(rootNavController: NavController) {
                         posts = posts,
                         onNavigateCreate = {
                             bottomNavController.navigate("create") {
-                                popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                popUpTo(bottomNavController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
                                 launchSingleTop = true
                                 restoreState = true
                             }
                         },
                         onNavigateCalendar = {
                             bottomNavController.navigate("calendar") {
-                                popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                popUpTo(bottomNavController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
                                 launchSingleTop = true
                                 restoreState = true
                             }
@@ -180,14 +179,18 @@ fun HomeShell(rootNavController: NavController) {
                         facebookConnected = facebookConnected,
                         onOpenConnectPopup = {
                             bottomNavController.navigate("accounts") {
-                                popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                popUpTo(bottomNavController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
                                 launchSingleTop = true
                                 restoreState = true
                             }
                         },
                         onNavigateCalendar = {
                             bottomNavController.navigate("calendar") {
-                                popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                popUpTo(bottomNavController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
                                 launchSingleTop = true
                                 restoreState = true
                             }
@@ -199,7 +202,9 @@ fun HomeShell(rootNavController: NavController) {
                         bottomPadding = paddingValues.calculateBottomPadding(),
                         onCreatePost = {
                             bottomNavController.navigate("create") {
-                                popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                popUpTo(bottomNavController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
                                 launchSingleTop = true
                                 restoreState = true
                             }
@@ -211,21 +216,22 @@ fun HomeShell(rootNavController: NavController) {
                         bottomPadding = paddingValues.calculateBottomPadding(),
                         onContinue = {
                             bottomNavController.navigate("create") {
-                                popUpTo(bottomNavController.graph.findStartDestination().id) { saveState = true }
+                                popUpTo(bottomNavController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
                                 launchSingleTop = true
                                 restoreState = true
                             }
                         }
                     )
                 }
-                if (isAdmin) {
-                    composable("admin") {
-                        AdminScreen(
-                            bottomPadding = paddingValues.calculateBottomPadding(),
-                            posts = posts,
-                            userCount = 1
-                        )
-                    }
+                // Always register admin route to prevent crashes on nav state restore
+                composable("admin") {
+                    AdminScreen(
+                        bottomPadding = paddingValues.calculateBottomPadding(),
+                        posts = posts,
+                        userCount = 1
+                    )
                 }
                 composable("settings") {
                     SettingsScreen(
@@ -260,7 +266,12 @@ fun FloatingBottomNavBar(navController: NavHostController, items: List<BottomNav
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = 24.dp, vertical = 16.dp)
-            .shadow(elevation = 16.dp, shape = RoundedCornerShape(24.dp), ambientColor = Color.Black, spotColor = Color.Black)
+            .shadow(
+                elevation = 16.dp,
+                shape = RoundedCornerShape(24.dp),
+                ambientColor = Color.Black,
+                spotColor = Color.Black
+            )
             .clip(RoundedCornerShape(24.dp))
             .background(NavBackground)
     ) {
@@ -376,7 +387,10 @@ fun BottomNavItemUI(
                         .size(36.dp)
                         .background(
                             brush = Brush.radialGradient(
-                                colors = listOf(GradientBrand[1].copy(alpha = glowAlpha), Color.Transparent),
+                                colors = listOf(
+                                    GradientBrand[1].copy(alpha = glowAlpha),
+                                    Color.Transparent
+                                ),
                                 radius = 60f
                             )
                         )
@@ -426,7 +440,10 @@ fun LoginScreenStub(onLoginSuccess: () -> Unit) {
             .background(Brush.verticalGradient(listOf(BgTop, BgBottom))),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp)
+        ) {
             Text("SOUC", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
             Text(
@@ -460,9 +477,17 @@ fun LoginScreenStub(onLoginSuccess: () -> Unit) {
                 )
             ) {
                 if (isLoading) {
-                    CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(
+                        color = Color.Black,
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
                 } else {
-                    Text("Continue with Google", color = Color.Black, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Continue with Google",
+                        color = Color.Black,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
 
