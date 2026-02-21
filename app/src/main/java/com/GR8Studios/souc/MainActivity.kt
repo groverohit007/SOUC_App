@@ -149,68 +149,37 @@ fun HomeShell(rootNavController: NavController) {
                 }
             }
         }
-
-        if (popupVisible) {
-            ConnectAccountsPopup(
-                youtubeConnected = youtubeConnected,
-                instagramConnected = instagramConnected,
-                facebookConnected = facebookConnected,
-                youtubeLoading = youtubeLoading,
-                instagramLoading = instagramLoading,
-                facebookLoading = facebookLoading,
-                onConnectPlatform = { platform ->
-                    when (platform) {
-                        SocialPlatform.YouTube -> if (!youtubeLoading) {
-                            youtubeLoading = true
+    ) { paddingValues ->
+        // The nested NavHost for the 5 tabs
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+            // Do not apply bottom padding here to let the background gradient flow behind the floating bar.
+            // We will handle safe areas inside the tab screens.
+        ) {
+            NavHost(
+                navController = bottomNavController,
+                startDestination = "home"
+            ) {
+                composable("home") { PlaceholderTabScreen("Home", paddingValues.calculateBottomPadding()) }
+                composable("create") { PlaceholderTabScreen("Create", paddingValues.calculateBottomPadding()) }
+                composable("calendar") { PlaceholderTabScreen("Calendar", paddingValues.calculateBottomPadding()) }
+                composable("accounts") {
+                    ConnectAccountsScreen(
+                        bottomPadding = paddingValues.calculateBottomPadding(),
+                        onContinue = {
+                            bottomNavController.navigate("create") {
+                                popUpTo(bottomNavController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
-
-                        SocialPlatform.Instagram -> if (!instagramLoading) {
-                            instagramLoading = true
-                        }
-
-                        SocialPlatform.Facebook -> if (!facebookLoading) {
-                            facebookLoading = true
-                        }
-                    }
-                },
-                onDisconnectPlatform = { platform ->
-                    when (platform) {
-                        SocialPlatform.YouTube -> youtubeConnected = false
-                        SocialPlatform.Instagram -> instagramConnected = false
-                        SocialPlatform.Facebook -> facebookConnected = false
-                    }
-                },
-                onCompleteConnect = { platform ->
-                    when (platform) {
-                        SocialPlatform.YouTube -> {
-                            youtubeLoading = false
-                            youtubeConnected = true
-                        }
-
-                        SocialPlatform.Instagram -> {
-                            instagramLoading = false
-                            instagramConnected = true
-                        }
-
-                        SocialPlatform.Facebook -> {
-                            facebookLoading = false
-                            facebookConnected = true
-                        }
-                    }
-                },
-                onSkip = {
-                    popupVisible = false
-                    showSkipBanner = true
-                },
-                onContinue = {
-                    if (hasConnectedPlatform) {
-                        popupVisible = false
-                        showSkipBanner = false
-                    }
-                },
-                onDismissRequest = { /* Block swipe-out to force explicit action */ },
-                continueEnabled = hasConnectedPlatform
-            )
+                    )
+                }
+                composable("settings") { PlaceholderTabScreen("Settings", paddingValues.calculateBottomPadding()) }
+            }
         }
     }
 }
