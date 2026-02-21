@@ -50,27 +50,18 @@ class GoogleAuthManager(private val context: Context) {
                 val authResult = signInWithFirebase(firebaseCredential)
                 val firebaseUser = authResult.user ?: error("No user returned from Firebase")
 
-                val usersRef = FirebaseFirestore.getInstance().collection("users").document(firebaseUser.uid)
-                val existing = getDocument(usersRef)
-
-                val isMasterAdmin = firebaseUser.email.equals(AppDefaults.MASTER_EMAIL, ignoreCase = true)
-                val defaults = mutableMapOf<String, Any>(
+                val isAdmin = firebaseUser.email.equals(AppDefaults.MASTER_EMAIL, ignoreCase = true)
+                val tier = if (isAdmin) "PREMIUM" else "FREE"
+                val userData = hashMapOf(
                     "email" to (firebaseUser.email ?: ""),
+                    "tier" to tier,
+                    "isAdmin" to isAdmin,
+                    "postsUsed" to 0,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
 
-                if (!existing.exists()) {
-                    defaults["tier"] = "FREE"
-                    defaults["postsUsed"] = 0
-                    defaults["isAdmin"] = false
-                }
-
-                if (isMasterAdmin) {
-                    defaults["tier"] = "PREMIUM"
-                    defaults["isAdmin"] = true
-                }
-
-                setDocument(usersRef, defaults)
+                FirebaseFirestore.getInstance().collection("users").document(firebaseUser.uid)
+                    .set(userData, SetOptions.merge())
 
                 AuthSession.setUser(AuthUser(firebaseUser.uid, firebaseUser.email, firebaseUser.displayName))
                 tokenStorage.saveGoogleProfile(firebaseUser.uid, firebaseUser.email, firebaseUser.displayName)
@@ -79,14 +70,6 @@ class GoogleAuthManager(private val context: Context) {
             }.onFailure {
                 onError(it.message ?: "Google sign-in failed")
             }
-        }
-    }
-
-    private suspend fun signInWithFirebase(credential: AuthCredential): AuthResult =
-        suspendCancellableCoroutine { cont ->
-            FirebaseAuth.getInstance().signInWithCredential(credential)
-                .addOnSuccessListener { cont.resume(it) }
-                .addOnFailureListener { cont.resumeWithException(it) }
         }
 
     private suspend fun getDocument(
@@ -104,6 +87,13 @@ class GoogleAuthManager(private val context: Context) {
             .addOnSuccessListener { cont.resume(Unit) }
             .addOnFailureListener { cont.resumeWithException(it) }
     }
+
+    private suspend fun signInWithFirebase(credential: AuthCredential): AuthResult =
+        suspendCancellableCoroutine { cont ->
+            FirebaseAuth.getInstance().signInWithCredential(credential)
+                .addOnSuccessListener { cont.resume(it) }
+                .addOnFailureListener { cont.resumeWithException(it) }
+        }
 
     fun restoreSession() {
         FirebaseAuth.getInstance().currentUser?.let {
