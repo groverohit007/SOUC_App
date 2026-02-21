@@ -71,6 +71,21 @@ class GoogleAuthManager(private val context: Context) {
                 onError(it.message ?: "Google sign-in failed")
             }
         }
+
+    private suspend fun getDocument(
+        ref: com.google.firebase.firestore.DocumentReference
+    ): com.google.firebase.firestore.DocumentSnapshot = suspendCancellableCoroutine { cont ->
+        ref.get().addOnSuccessListener { cont.resume(it) }
+            .addOnFailureListener { cont.resumeWithException(it) }
+    }
+
+    private suspend fun setDocument(
+        ref: com.google.firebase.firestore.DocumentReference,
+        data: Map<String, Any>
+    ) = suspendCancellableCoroutine<Unit> { cont ->
+        ref.set(data, SetOptions.merge())
+            .addOnSuccessListener { cont.resume(Unit) }
+            .addOnFailureListener { cont.resumeWithException(it) }
     }
 
     private suspend fun signInWithFirebase(credential: AuthCredential): AuthResult =

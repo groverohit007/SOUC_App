@@ -52,10 +52,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -256,7 +255,7 @@ fun HomeShell(rootNavController: NavController) {
 data class BottomNavItem(val route: String, val title: String, val icon: ImageVector)
 
 @Composable
-fun FloatingBottomNavBar(navController: NavHostController, items: List<BottomNavItem>) {
+fun Floating3DNavBar(navController: NavHostController, isAdmin: Boolean) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: "home"
     val selectedIndex = items.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
@@ -349,6 +348,10 @@ private fun BottomNavItemUI(
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
             fontSize = 11.sp
         )
+        Spacer(modifier = Modifier.height(4.dp))
+        AnimatedVisibility(visible = isSelected) {
+            Text(text = item.title, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
