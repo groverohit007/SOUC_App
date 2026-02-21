@@ -120,68 +120,23 @@ fun HomeShell(rootNavController: NavController) {
     var instagramLoading by rememberSaveable { mutableStateOf(false) }
     var facebookLoading by rememberSaveable { mutableStateOf(false) }
 
-    val youtubeLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        youtubeLoading = false
-        if (result.resultCode == Activity.RESULT_OK) {
-            val authResult = youTubeOAuthManager.handleResult(result.data)
-            authResult.onSuccess { account ->
-                val authCode = account.serverAuthCode
-                if (!authCode.isNullOrBlank()) {
-                    youTubeOAuthManager.persistAuthCodeAsScaffold(authCode)
-                    youtubeConnected = true
-                } else {
-                    youtubeConnected = false
-                    Toast.makeText(context, "YouTube auth code not returned", Toast.LENGTH_SHORT).show()
-                }
-            }.onFailure {
-                youtubeConnected = false
-                Toast.makeText(context, "YouTube connect failed: ${it.message}", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            Toast.makeText(context, "YouTube connection canceled", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     LaunchedEffect(Unit) {
         delay(100)
         isBarVisible = true
         popupVisible = true
-        youtubeConnected = tokenStorage.isYouTubeConnectedAndValid()
-        if (!youtubeConnected) {
-            showSkipBanner = true
-        }
     }
 
     val hasConnectedPlatform = youtubeConnected || instagramConnected || facebookConnected
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Scaffold(
-            containerColor = Color.Transparent,
-            bottomBar = {
-                AnimatedVisibility(
-                    visible = isBarVisible,
-                    enter = fadeIn(tween(BAR_ENTER_DURATION, easing = EaseOut)) +
-                            slideInVertically(
-                                initialOffsetY = { it },
-                                animationSpec = tween(BAR_ENTER_DURATION, easing = EaseOutBack)
-                            )
-                ) {
-                    FloatingBottomNavBar(navController = bottomNavController)
-                }
-            }
-        ) { paddingValues ->
-            Box(modifier = Modifier.fillMaxSize()) {
-                NavHost(
-                    navController = bottomNavController,
-                    startDestination = "home"
-                ) {
-                    composable("home") {
-                        PlaceholderTabScreen(
-                            title = "Home",
-                            bottomPadding = paddingValues.calculateBottomPadding(),
-                            bannerText = if (showSkipBanner) "Connect your socials to start scheduling posts faster." else null
+    Scaffold(
+        containerColor = Color.Transparent,
+        bottomBar = {
+            AnimatedVisibility(
+                visible = isBarVisible,
+                enter = fadeIn(tween(BAR_ENTER_DURATION, easing = EaseOut)) +
+                        slideInVertically(
+                            initialOffsetY = { it },
+                            animationSpec = tween(BAR_ENTER_DURATION, easing = EaseOutBack)
                         )
                     }
                     composable("create") {
@@ -217,66 +172,39 @@ fun HomeShell(rootNavController: NavController) {
                 }
             }
         }
-
-        if (popupVisible) {
-            ConnectAccountsPopup(
-                youtubeConnected = youtubeConnected,
-                instagramConnected = instagramConnected,
-                facebookConnected = facebookConnected,
-                youtubeLoading = youtubeLoading,
-                instagramLoading = instagramLoading,
-                facebookLoading = facebookLoading,
-                onConnectPlatform = { platform ->
-                    when (platform) {
-                        SocialPlatform.YouTube -> {
-                            if (!youtubeLoading) {
-                                youtubeLoading = true
-                                youtubeLauncher.launch(youTubeOAuthManager.getConnectIntent())
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            NavHost(
+                navController = bottomNavController,
+                startDestination = "home"
+            ) {
+                composable("home") {
+                    PlaceholderTabScreen(
+                        title = "Home",
+                        bottomPadding = paddingValues.calculateBottomPadding(),
+                        bannerText = if (showSkipBanner) "Connect your socials to start scheduling posts faster." else null
+                    )
+                }
+                composable("create") { PlaceholderTabScreen("Create", paddingValues.calculateBottomPadding()) }
+                composable("calendar") { PlaceholderTabScreen("Calendar", paddingValues.calculateBottomPadding()) }
+                composable("accounts") {
+                    ConnectAccountsScreen(
+                        bottomPadding = paddingValues.calculateBottomPadding(),
+                        onContinue = {
+                            bottomNavController.navigate("create") {
+                                popUpTo(bottomNavController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
                             }
                         }
-
-                        SocialPlatform.Instagram -> if (!instagramLoading) {
-                            instagramLoading = true
-                            coroutineScope.launch {
-                                delay(900)
-                                instagramLoading = false
-                                instagramConnected = true
-                            }
-                        }
-
-                        SocialPlatform.Facebook -> if (!facebookLoading) {
-                            facebookLoading = true
-                            coroutineScope.launch {
-                                delay(900)
-                                facebookLoading = false
-                                facebookConnected = true
-                            }
-                        }
-                    }
-                },
-                onDisconnectPlatform = { platform ->
-                    when (platform) {
-                        SocialPlatform.YouTube -> {
-                            youtubeConnected = false
-                            youTubeOAuthManager.clearConnection()
-                        }
-                        SocialPlatform.Instagram -> instagramConnected = false
-                        SocialPlatform.Facebook -> facebookConnected = false
-                    }
-                },
-                onSkip = {
-                    popupVisible = false
-                    showSkipBanner = true
-                },
-                onContinue = {
-                    if (hasConnectedPlatform) {
-                        popupVisible = false
-                        showSkipBanner = false
-                    }
-                },
-                onDismissRequest = { /* Block swipe-out to force explicit action */ },
-                continueEnabled = hasConnectedPlatform
-            )
+                    )
+                }
+                composable("settings") { PlaceholderTabScreen("Settings", paddingValues.calculateBottomPadding()) }
+            }
         }
     }
 }
